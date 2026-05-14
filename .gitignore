@@ -1,0 +1,31 @@
+# Environments
+.env
+.venv
+venv/
+ENV/
+
+# Python caching and compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution and packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDEs and Editors
+.idea/
+.vscode/
+*.swp
