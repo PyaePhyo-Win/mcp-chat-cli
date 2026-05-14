@@ -1,7 +1,7 @@
 from core.gemini import Gemini
 from mcp_client import MCPClient
 from core.tools import ToolManager
-from google.genai import types
+from google.genai import types, errors
 
 class Chat:
     def __init__(self, llm_service: Gemini, clients: dict[str, MCPClient]):
@@ -20,10 +20,13 @@ class Chat:
         await self._process_query(query)
 
         while True:
-            response = self.llm_service.chat(
-                messages=self.messages,
-                tools=await ToolManager.get_all_tools(self.clients),
-            )
+            try:
+                response = self.llm_service.chat(
+                    messages=self.messages,
+                    tools=await ToolManager.get_all_tools(self.clients),
+                )
+            except errors.APIError as e:
+                return f"An error occurred while communicating with the Gemini API: {e.message}"
             
             # Add assistant's response to history
             self.messages.append(response.candidates[0].content)
