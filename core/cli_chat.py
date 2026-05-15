@@ -1,8 +1,15 @@
-from typing import List, Tuple
+from typing import List, Tuple, AsyncGenerator, Optional
 from mcp.types import Prompt, PromptMessage
 from core.chat import Chat
 from core.gemini import Gemini
 from mcp_client import MCPClient
+
+SUPPORTED_MODELS = [
+    "gemini-3-flash-preview",
+    "gemini-3.1-flash-lite-preview",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+]
 
 class CliChat(Chat):
     def __init__(
@@ -43,49 +50,73 @@ class CliChat(Chat):
             for doc_id, content in mentioned_docs
         )
 
-    async def _process_command(self, query: str) -> bool:
+    async def _process_command(self, query: str) -> Optional[str]:
         if not query.startswith("/"):
-            return False
+            return None
 
         words = query.split()
-        command = words[0].replace("/", "")
-        messages = await self.doc_client.get_prompt(
-            command, {"doc_id": words[1]}
-        )
-        
-        # Convert prompt messages to Gemini parts
-        for msg in messages:
-            role = "user" if msg.role == "user" else "model"
-            content = msg.content
-            text = ""
-            if isinstance(content, dict) and content.get("type") == "text":
-                text = content.get("text", "")
-            elif hasattr(content, "type") and content.type == "text":
-                text = getattr(content, "text", "")
-                
-            self.messages.append({"role": role, "parts": [{"text": text}]})
-            
-        return True
+        cmd = words[0].lower()
 
-    async def _process_query(self, query: str):
-        if await self._process_command(query):
+        # Built-in commands
+        if cmd == "/model":
+            if len(words) < 2:
+                return f"**Current model:** {self.llm_service.model}\n\n**Available models:**\n" + "\n".join([f"- {m}" for m in SUPPORTED_MODELS])
+            
+            new_model = words[1]
+            if new_model in SUPPORTED_MODELS:
+                self.llm_service.model = new_model
+                return f"Successfully switched to model: **{new_model}**"
+            else:
+                return f"Error: Model '**{new_model}**' is not supported."
+
+        if cmd == "/clear":
+            self.messages = []
+            return "Chat history cleared."
+
+        if cmd == "/help":
+            help_text = "**Available Commands:**\n\n"
+            help_text += "- `/model <name>`: Switch Gemini model\n"
+            help_text += "- `/clear`: Clear chat history\n"
+            help_text += "- `/help`: Show this help message\n\n"
+            
+            prompts = await self.list_prompts()
+            if prompts:
+                help_text += "**MCP Prompts:**\n"
+                for p in prompts:
+                    help_text += f"- `/{p.name}`: {p.description or ''}\n"
+            
+            return help_text
+
+        # MCP Prompts
+        command = cmd.replace("/", "")
+        try:
+            doc_id = words[1] if len(words) > 1 else ""
+            messages = await self.doc_client.get_prompt(
+                command, {"doc_id": doc_id}
+            )
+            
+            # Convert prompt messages to Gemini parts
+            for msg in messages:
+                role = "user" if msg.role == "user" else "model"
+                content = msg.content
+                text = ""
+                if isinstance(content, dict) and content.get("type") == "text":
+                    text = content.get("text", "")
+                elif hasattr(content, "type") and content.type == "text":
+                    text = getattr(content, "text", "")
+                    
+                self.messages.append({"role": role, "parts": [{"text": text}]})
+            return "Command processed."
+        except Exception:
+            # If not a known MCP prompt, return None so it's treated as a normal query
+            return None
+
+    async def run(self, query: str) -> AsyncGenerator[str, None]:
+        cmd_result = await self._process_command(query)
+        if cmd_result:
+            yield cmd_result
             return
 
-        added_resources = await self._extract_resources(query)
-
-        prompt = f"""
-        The user has a question:
-        <query>
-        {query}
-        </query>
-
-        The following context may be useful in answering their question:
-        <context>
-        {added_resources}
-        </context>
-
-        Note the user's query might contain references to documents like "@report.docx".
-        Answer the user's question directly and concisely. Start with the exact information they need. 
-        """
-
-        self.messages.append({"role": "user", "parts": [{"text": prompt}]})
+        # Rest of Chat.run logic is inherited
+        async for chunk in super().run(query):
+            yield chunk

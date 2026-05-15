@@ -7,8 +7,12 @@ from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.auto_suggest import AutoSuggest, Suggestion
 from prompt_toolkit.document import Document
 from prompt_toolkit.buffer import Buffer
-
 from core.cli_chat import CliChat
+from rich.console import Console
+from rich.panel import Panel
+from rich.markdown import Markdown
+from rich.text import Text
+from rich.live import Live
 
 
 class CommandAutoSuggest(AutoSuggest):
@@ -41,6 +45,13 @@ class UnifiedCompleter(Completer):
         self.prompts = []
         self.prompt_dict = {}
         self.resources = []
+        self.builtin_commands = {
+            "model": "Switch Gemini model",
+            "clear": "Clear chat history",
+            "help": "Show help message",
+        }
+        from core.cli_chat import SUPPORTED_MODELS
+        self.supported_models = SUPPORTED_MODELS
 
     def update_prompts(self, prompts: List):
         self.prompts = prompts
@@ -70,9 +81,21 @@ class UnifiedCompleter(Completer):
         if text.startswith("/"):
             parts = text[1:].split()
 
+            # Command name completion
             if len(parts) <= 1 and not text.endswith(" "):
                 cmd_prefix = parts[0] if parts else ""
 
+                # Suggest built-in commands
+                for cmd, desc in self.builtin_commands.items():
+                    if cmd.startswith(cmd_prefix):
+                        yield Completion(
+                            cmd,
+                            start_position=-len(cmd_prefix),
+                            display=f"/{cmd}",
+                            display_meta=desc,
+                        )
+
+                # Suggest MCP prompts
                 for prompt in self.prompts:
                     if prompt.name.startswith(cmd_prefix):
                         yield Completion(
@@ -83,8 +106,14 @@ class UnifiedCompleter(Completer):
                         )
                 return
 
+            # Argument completion
             if len(parts) == 1 and text.endswith(" "):
-                cmd = parts[0]
+                cmd = parts[0].lower()
+
+                if cmd == "model":
+                    for model in self.supported_models:
+                        yield Completion(model, start_position=0, display=model)
+                    return
 
                 if cmd in self.prompt_dict:
                     for id in self.resources:
@@ -96,16 +125,25 @@ class UnifiedCompleter(Completer):
                 return
 
             if len(parts) >= 2:
+                cmd = parts[0].lower()
                 doc_prefix = parts[-1]
 
+                if cmd == "model":
+                    for model in self.supported_models:
+                        if model.lower().startswith(doc_prefix.lower()):
+                            yield Completion(
+                                model,
+                                start_position=-len(doc_prefix),
+                                display=model
+                            )
+                    return
+
                 for resource in self.resources:
-                    if "id" in resource and resource["id"].lower().startswith(
-                        doc_prefix.lower()
-                    ):
+                    if resource.lower().startswith(doc_prefix.lower()):
                         yield Completion(
-                            resource["id"],
+                            resource,
                             start_position=-len(doc_prefix),
-                            display=resource["id"],
+                            display=resource,
                         )
                 return
 
@@ -115,6 +153,7 @@ class CliApp:
         self.agent = agent
         self.resources = []
         self.prompts = []
+        self.console = Console()
 
         self.completer = UnifiedCompleter()
 
@@ -164,17 +203,22 @@ class CliApp:
             completer=self.completer,
             history=self.history,
             key_bindings=self.kb,
+            bottom_toolbar=self._get_bottom_toolbar,
             style=Style.from_dict(
                 {
-                    "prompt": "#aaaaaa",
+                    "prompt": "bold #00ff00",
                     "completion-menu.completion": "bg:#222222 #ffffff",
                     "completion-menu.completion.current": "bg:#444444 #ffffff",
+                    "bottom-toolbar": "bg:#000000 italic",
                 }
             ),
             complete_while_typing=True,
             complete_in_thread=True,
             auto_suggest=self.command_autosuggester,
         )
+
+    def _get_bottom_toolbar(self):
+        return f" Active Model: {self.agent.llm_service.model} "
 
     async def initialize(self):
         await self.refresh_resources()
@@ -196,15 +240,41 @@ class CliApp:
         except Exception as e:
             print(f"Error refreshing prompts: {e}")
 
+    def _display_welcome(self):
+        welcome_text = Text("Welcome to MCP Chat CLI!", style="bold cyan")
+        welcome_text.append("\n\nConnect with your tools and documents using Gemini.", style="italic white")
+        
+        self.console.print(
+            Panel(
+                welcome_text,
+                title="[bold magenta]MCP Chat CLI[/bold magenta]",
+                border_style="blue",
+                padding=(1, 2),
+            )
+        )
+        self.console.print("\nType [bold green]/[/bold green] for commands, [bold green]@[/bold green] for resources.\n")
+
     async def run(self):
+        self._display_welcome()
         while True:
             try:
-                user_input = await self.session.prompt_async("> ")
+                # Use a more styled prompt
+                user_input = await self.session.prompt_async([("class:prompt", "User: ")])
                 if not user_input.strip():
                     continue
 
-                response = await self.agent.run(user_input)
-                print(f"\nResponse:\n{response}")
+                self.console.print("\n[bold magenta]Assistant:[/bold magenta]")
+                
+                full_response = ""
+                # Use Live to render the streaming response
+                with Live(Markdown(full_response), console=self.console, refresh_per_second=10) as live:
+                    async for chunk in self.agent.run(user_input):
+                        full_response += chunk
+                        live.update(Markdown(full_response))
+                
+                self.console.print()
 
             except KeyboardInterrupt:
                 break
+            except Exception as e:
+                self.console.print(f"[bold red]Error:[/bold red] {e}")

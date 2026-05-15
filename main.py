@@ -7,25 +7,22 @@ from contextlib import AsyncExitStack
 from mcp_client import MCPClient
 from core.gemini import Gemini
 
-from core.cli_chat import CliChat
+from core.cli_chat import CliChat, SUPPORTED_MODELS
 from core.cli import CliApp
 
 load_dotenv()
 
 # Gemini Config
-gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+default_gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 gemini_api_key = os.getenv("GEMINI_API_KEY", "")
 
-
-assert gemini_model, "Error: GEMINI_MODEL cannot be empty. Update .env"
 assert gemini_api_key, (
     "Error: GEMINI_API_KEY cannot be empty. Update .env"
 )
 
-
 async def main():
-    gemini_service = Gemini(model=gemini_model)
-
+    # Use default model from environment
+    gemini_service = Gemini(model=default_gemini_model)
     server_scripts = sys.argv[1:]
     clients = {}
 

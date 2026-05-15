@@ -35,6 +35,7 @@ dependencies = [
     { name = "mcp", extra = ["cli"] },
     { name = "prompt-toolkit" },
     { name = "python-dotenv" },
+    { name = "rich" },
 ]
 
 [package.metadata]
@@ -43,6 +44,7 @@ requires-dist = [
     { name = "mcp", extras = ["cli"], specifier = ">=1.8.0" },
     { name = "prompt-toolkit", specifier = ">=3.0.51" },
     { name = "python-dotenv", specifier = ">=1.1.0" },
+    { name = "rich", specifier = ">=13.0.0" },
 ]
 
 [[package]]

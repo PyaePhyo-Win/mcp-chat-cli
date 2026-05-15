@@ -6,14 +6,8 @@ class Gemini:
         self.client = genai.Client()
         self.model = model
 
-    def chat(self, messages, tools=None):
-        params = {
-            "messages": messages,
-        }
-        if tools:
-            params["tools"] = tools
-            
-        response = self.client.models.generate_content(
+    async def chat_stream(self, messages, tools=None):
+        response = await self.client.aio.models.generate_content_stream(
             model=self.model,
             contents=messages,
             config=types.GenerateContentConfig(
